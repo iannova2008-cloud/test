@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>연도별 발전연료 사용량 추이 분석 대시보드</title>
+    <!-- Chart.js 및 PapaParse 라이브러리 CDN 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #34495e;
+            --accent: #16a085;
+            --bg-gray: #f4f6f7;
+            --card-bg: #ffffff;
+            --border: #d5dbdb;
+            --text-dark: #2c3e50;
+            --text-muted: #7f8c8d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1280px;
+        }
+
+        header {
+            text-align: center;
+            padding: 35px 20px;
+            background: linear-gradient(135deg, var(--primary), #1a252f);
+            color: white;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        #status-container {
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            line-height: 1.5;
+        }
+        .alert-info { background-color: #e8f8f5; color: #117a65; border: 1px solid #a3e4d7; }
+        .alert-error { background-color: #fdf2e9; color: #b9770e; border: 1px solid #f5cbad; }
+
+        .filter-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 25px;
+        }
+        .filter-grid {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .filter-item label {
+            font-weight: 600;
+            color: var(--secondary);
+        }
+        .filter-item select {
+            padding: 8px 15px;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .kpi-box {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .kpi-box .title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
+        .kpi-box .value { font-size: 1.65rem; font-weight: 700; color: var(--primary); margin-top: 5px; }
+        .kpi-box .unit { font-size: 0.85rem; color: var(--text-muted); }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
+            gap: 25px;
+            margin-bottom: 25px;
+        }
+        .chart-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .chart-card h3 {
+            font-size: 1.1rem;
+            color: var(--primary);
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #eaeded;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+        }
+
+        blockquote {
+            border-left: 4px solid var(--accent);
+            padding-left: 15px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+
+        @media (max-width: 768px) {
+            .chart-grid { grid-template-columns: 1fr; }
+            .chart-container { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>📊 연도별 발전연료 사용량 추이 대시보드</h1>
+        <p>HOME 발전·판매 통계 연계 시각화 웹앱</p>
+    </header>
+
+    <div id="status-container">
+        <div class="alert alert-info" id="status-text">디렉토리 내부에서 발전연료 통계 CSV 데이터를 로드하고 있습니다...</div>
+    </div>
+
+    <div class="filter-card">
+        <div class="filter-grid">
+            <div class="filter-item">
+                <label for="fuel-select">상세 분석 연료 선택:</label>
+                <select id="fuel-select" onchange="renderCharts()">
+                    <option value="bitu">유연탄 (1,000ton)</option>
+                    <option value="anth">무연탄 (1,000ton)</option>
+                    <option value="gas">가스 (1,000ton)</option>
+                    <option value="heavyOil">중유 (1,000㎘)</option>
+                    <option value="lightOil">경유 (1,000㎘)</option>
+                </select>
+            </div>
+            <div id="data-range-label" style="font-size: 0.9rem; color: var(--text-muted); font-weight: 500;">데이터 범위 파싱 대기 중...</div>
+        </div>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-box">
+            <div class="title">최신 기준 유연탄 사용량</div>
+            <div class="value" id="kpi-coal-y">0 <span class="unit">1,000ton</span></div>
+        </div>
+        <div class="kpi-box">
+            <div class="title">최신 기준 가스(LNG) 사용량</div>
+            <div class="value" id="kpi-gas">0 <span class="unit">1,000ton</span></div>
+        </div>
+        <div class="kpi-box">
+            <div class="title">최신 기준 총 발열량</div>
+            <div class="value" id="kpi-calories" style="color: var(--accent);">0 <span class="unit">10^9 kcal</span></div>
+        </div>
+    </div>
+
+    <div class="chart-grid">
+        <div class="chart-card">
+            <h3>🔥 주요 화석연료원별 연도별 사용량 추이 (Stacked Bar)</h3>
+            <div class="chart-container">
+                <canvas id="stackedBarChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h3>📈 선택된 발전연료 단독 소비량 변동 트렌드 (Line)</h3>
+            <div class="chart-container">
+                <canvas id="singleLineChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card" style="grid-column: 1 / -1;">
+            <h3>⚡ 연도별 발전연료 총 발열량 추이 (Area Chart)</h3>
+            <div class="chart-container" style="height: 380px;">
+                <canvas id="caloriesAreaChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <blockquote>
+        📌 <strong>데이터 파싱 안내:</strong> 이 웹앱은 동일 디렉토리 내 <code>data.csv</code> (또는 <code>HOME_발전·판매_발전연료사용량추이.csv</code>) 파일 정보를 실시간으로 파싱합니다. 상단의 선택 상자를 통해 특정 연료의 과거부터 현재까지의 변화율을 실시간으로 추적할 수 있습니다.
+    </blockquote>
+</div>
+
+<script>
+    // 1순위로 data.csv를 시도하고 실패 시 원래 긴 한글 파일명을 교차 추적합니다.
+    const PRIMARY_FILE = 'data.csv';
+    const FALLBACK_FILE = 'HOME_발전·판매_발전연료사용량추이.csv';
+
+    let dashboardData = [];
+    let chartStackedBar = null;
+    let chartSingleLine = null;
+    let chartCaloriesArea = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        tryFetchData(PRIMARY_FILE);
+    });
+
+    async function tryFetchData(fileName) {
+        try {
+            // 주소창 깨짐 방지를 위해 인코딩 처리
+            const response = await fetch(encodeURIComponent(fileName));
+            if (!response.ok) {
+                if (fileName === PRIMARY_FILE) {
+                    // data.csv가 없다면 원본 파일명으로 2차 시도
+                    console.log("data.csv 로드 실패, 원본 파일명으로 재시도합니다.");
+                    tryFetchData(FALLBACK_FILE);
+                    return;
+                }
+                throw new Error("파일 로드 실패");
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            
+            // 한글 인코딩 문제를 해결하기 위해 cp949 적용 후 점검
+            let decoder = new TextDecoder('cp949');
+            let decodedText = decoder.decode(arrayBuffer);
+
+            if (!decodedText.includes('연도') && !decodedText.includes('무연탄')) {
+                decoder = new TextDecoder('utf-8');
+                decodedText = decoder.decode(arrayBuffer);
+            }
+
+            Papa.parse(decodedText.trim(), {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    const parsedRows = results.data;
+                    const cleanData = [];
+
+                    parsedRows.forEach((row) => {
+                        const yearRaw = row['연도'] ? row['연도'].trim() : '';
+                        const yearNum = parseFloat(yearRaw);
+
+                        // 숫자로 파싱 가능한 정상 데이터 행만 추출 (단위 행 스킵 효과)
+                        if (!isNaN(yearNum)) {
+                            const cleanNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+                            cleanData.push({
+                                year: Math.floor(yearNum),
+                                anth: cleanNum(row['무연탄']),
+                                bitu: cleanNum(row['유연탄']),
+                                heavyOil: cleanNum(row['중유']),
+                                lightOil: cleanNum(row['경유']),
+                                gas: cleanNum(row['가스']),
+                                calories: cleanNum(row['열량계10^9kcal'])
+                            });
+                        }
+                    });
+
+                    // 연도 오름차순(과거 -> 최신) 정렬
+                    cleanData.sort((a, b) => a.year - b.year);
+                    dashboardData = cleanData;
+
+                    if (dashboardData.length === 0) {
+                        showError("데이터 추출 실패", "CSV 파일에서 시각화할 수 있는 유효한 행을 찾지 못했습니다. 열 구성을 확인하세요.");
+                        return;
+                    }
+
+                    document.getElementById('status-container').style.display = 'none';
+                    
+                    const minYear = dashboardData[0].year;
+                    const maxYear = dashboardData[dashboardData.length - 1].year;
+                    document.getElementById('data-range-label').innerText = `수집 및 분석 기간: ${minYear}년 ~ ${maxYear}년`;
+
+                    updateKPIs();
+                    renderCharts();
+                }
+            });
+
+        } catch (error) {
+            if (fileName === FALLBACK_FILE) {
+                showError("데이터 연동 프로세스 최종 실패",
+                    `동일 디렉토리 내부에서 <strong>data.csv</strong> 또는 <strong>${FALLBACK_FILE}</strong> 파일을 로드할 수 없습니다.<br>` +
+                    `1. 엑셀파일(.xlsx)을 반드시 <strong>구분자 코마(CSV) 파일</strong>로 변환하여 업로드했는지 확인하세요.<br>` +
+                    `2. 파일명을 단순하게 <strong>data.csv</strong>로 변경하여 index.html과 같은 위치에 넣어주는 것을 강력히 권장합니다.`);
+            }
+        }
+    }
+
+    function showError(title, message) {
+        const statusBox = document.getElementById('status-text');
+        statusBox.className = "alert alert-error";
+        statusBox.innerHTML = `<strong>❌ ${title}</strong><br><span style='font-size:0.9rem; font-weight:normal;'>${message}</span>`;
+    }
+
+    function updateKPIs() {
+        const latest = dashboardData[dashboardData.length - 1];
+        if (latest) {
+            document.getElementById('kpi-coal-y').innerHTML = `${latest.bitu.toLocaleString()} <span class="unit">1,000ton</span>`;
+            document.getElementById('kpi-gas').innerHTML = `${latest.gas.toLocaleString()} <span class="unit">1,000ton</span>`;
+            document.getElementById('kpi-calories').innerHTML = `${latest.calories.toLocaleString()} <span class="unit">10^9 kcal</span>`;
+        }
+    }
+
+    function renderCharts() {
+        const labels = dashboardData.map(d => `${d.year}년`);
+        const selectEl = document.getElementById('fuel-select');
+        const selectedFuelKey = selectEl.value;
+        const selectedFuelName = selectEl.options[selectEl.selectedIndex].text;
+
+        // 1. Stacked Bar Chart
+        if (chartStackedBar) chartStackedBar.destroy();
+        chartStackedBar = new Chart(document.getElementById('stackedBarChart').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: '유연탄', data: dashboardData.map(d => d.bitu), backgroundColor: '#566573' },
+                    { label: '가스', data: dashboardData.map(d => d.gas), backgroundColor: '#5dabaf' },
+                    { label: '무연탄', data: dashboardData.map(d => d.anth), backgroundColor: '#a6acaf' },
+                    { label: '중유', data: dashboardData.map(d => d.heavyOil), backgroundColor: '#d35400' },
+                    { label: '경유', data: dashboardData.map(d => d.lightOil), backgroundColor: '#f1c40f' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { x: { stacked: true }, y: { stacked: true } },
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+
+        // 2. Single Line Chart
+        let singlePlotData = dashboardData.map(d => d[selectedFuelKey]);
+        let colorTheme = '#16a085';
+        if (selectedFuelKey === 'bitu') colorTheme = '#566573';
+        if (selectedFuelKey === 'anth') colorTheme = '#a6acaf';
+        if (selectedFuelKey === 'gas') colorTheme = '#5dabaf';
+        if (selectedFuelKey === 'heavyOil') colorTheme = '#d35400';
+        if (selectedFuelKey === 'lightOil') colorTheme = '#f1c40f';
+
+        if (chartSingleLine) chartSingleLine.destroy();
+        chartSingleLine = new Chart(document.getElementById('singleLineChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: selectedFuelName,
+                    data: singlePlotData,
+                    borderColor: colorTheme,
+                    backgroundColor: 'transparent',
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    tension: 0.15
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: true, position: 'top' } }
+            }
+        });
+
+        // 3. Calories Area Chart
+        if (chartCaloriesArea) chartCaloriesArea.destroy();
+        chartCaloriesArea = new Chart(document.getElementById('caloriesAreaChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '총 발열량 (10^9 kcal)',
+                    data: dashboardData.map(d => d.calories),
+                    borderColor: '#16a085',
+                    backgroundColor: 'rgba(22, 160, 133, 0.12)',
+                    fill: true,
+                    borderWidth: 2.5,
+                    pointRadius: 2,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } }
+            }
+        });
+    }
+</script>
+</body>
+</html>
